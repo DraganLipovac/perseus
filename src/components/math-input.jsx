@@ -1,12 +1,12 @@
-/** @jsx React.DOM */
+var classNames = require("classnames");
+var React = require("react");
+var _ = require("underscore");
+
+var TexButtons = require("./tex-buttons.jsx");
 
 // TODO(alex): Package MathQuill
 var MathQuill = window.MathQuill;
-var React     = require("react");
-var _         = require("underscore");
-var cx        = React.addons.classSet;
 var PT = React.PropTypes;
-var TexButtons = require("./tex-buttons.jsx");
 
 // A WYSIWYG math input that calls `onChange(LaTeX-string)`
 var MathInput = React.createClass({
@@ -15,12 +15,13 @@ var MathInput = React.createClass({
         onChange: PT.func.isRequired,
         convertDotToTimes: PT.bool,
         buttonsVisible: PT.oneOf(['always', 'never', 'focused']),
+        buttonSets: TexButtons.buttonSetsType.isRequired,
         onFocus: PT.func,
         onBlur: PT.func
     },
 
     render: function() {
-        var className = cx({
+        var className = classNames({
             "perseus-math-input": true,
 
             // mathquill usually adds these itself but react removes them when
@@ -29,9 +30,14 @@ var MathInput = React.createClass({
             "mq-math-mode": true
         });
 
+        if (this.props.className) {
+            className = className + " " + this.props.className;
+        }
+
         var buttons = null;
         if (this._shouldShowButtons()) {
             buttons = <TexButtons
+                sets={this.props.buttonSets}
                 className="math-input-buttons absolute"
                 convertDotToTimes={this.props.convertDotToTimes}
                 onInsert={this.insert} />;
@@ -147,9 +153,9 @@ var MathInput = React.createClass({
         // trig functions; those are always interpreted as commands.
         MathQuill.addAutoCommands("pi theta phi sqrt");
 
-        // Pop the cursor out of super/subscripts on addition or (in)equalities
-        // Avoid popping on '-' to allow negative exponents
-        MathQuill.addCharsThatBreakOutOfSupSub("+=<>≠≤≥");
+        // Pop the cursor out of super/subscripts on arithmetic operators or
+        // (in)equalities.
+        MathQuill.addCharsThatBreakOutOfSupSub("+-*/=<>≠≤≥");
 
         // Prevent excessive super/subscripts or fractions from being created
         // without operands, e.g. when somebody holds down a key
@@ -189,6 +195,17 @@ var MathInput = React.createClass({
                     // which case 'x' should get converted to '\\times'
                     if (this.props.convertDotToTimes) {
                         value = value.replace(/\\cdot/g, "\\times");
+
+                        // Preserve cursor position in the common case:
+                        // typing '*' to insert a multiplication sign.
+                        // We do this by modifying internal MathQuill state
+                        // directly, instead of waiting for `.latex()` to be
+                        // called in `componentDidUpdate()`.
+                        var left = mathField.controller.cursor[MathQuill.L];
+                        if (left && left.ctrlSeq === '\\cdot ') {
+                            mathField.controller.backspace();
+                            mathField.cmd('\\times');
+                        }
                     } else {
                         value = value.replace(/\\times/g, "\\cdot");
                     }
@@ -229,6 +246,11 @@ var MathInput = React.createClass({
     focus: function() {
         this.mathField().focus();
         this.setState({ focused: true });
+    },
+
+    blur: function() {
+        this.mathField().blur();
+        this.setState({ focused: false });
     }
 });
 

@@ -1,41 +1,195 @@
-/** @jsx React.DOM */
-
 var React = require('react');
+var _ = require("underscore");
+
 var Changeable = require("../mixins/changeable.jsx");
 var ApiClassNames = require("../perseus-api.jsx").ClassNames;
 
-var ButtonGroup = require("react-components/button-group");
 var Editor = require("../editor.jsx");
 var PropCheckBox = require("../components/prop-check-box.jsx");
 var Renderer = require("../renderer.jsx");
+var PassageRef = require("./passage-ref.jsx");
+var Util = require("../util.js");
 
-var InfoTip = require("react-components/info-tip");
+var InfoTip = require("react-components/info-tip.jsx");
 
 var shuffle = require("../util.js").shuffle;
 var seededRNG = require("../util.js").seededRNG;
 var captureScratchpadTouchStart =
         require("../util.js").captureScratchpadTouchStart;
 
-var cx = React.addons.classSet;
+var classNames = require("classnames");
+
+var Choice = React.createClass({
+    propTypes: {
+        checked: React.PropTypes.bool,
+        className: React.PropTypes.string,
+        clue: React.PropTypes.object,
+        content: React.PropTypes.node,
+        disabled: React.PropTypes.bool,
+        groupName: React.PropTypes.string,
+        showClue: React.PropTypes.bool,
+        type: React.PropTypes.string,
+        onChecked: React.PropTypes.func
+    },
+
+    getDefaultProps: function() {
+        return {
+            checked: false,
+            classSet: {},
+            disabled: false,
+            showClue: false,
+            type: 'radio'
+        };
+    },
+
+    render: function() {
+        return <label
+                className={this.props.className}
+                onClick={(e) => { e.preventDefault(); }}>
+            <span className="checkbox">
+                <input
+                    type={this.props.type}
+                    name={this.props.groupName}
+                    checked={this.props.checked}
+                    disabled={this.props.disabled}
+                    onClick={(e) => {
+                        // Avoid sending this to the parent
+                        e.stopPropagation();
+                    }}
+                    onChange={(e) => {
+                        this.props.onChecked(e.target.checked);
+                    }} />
+            </span>
+            {/* A pseudo-label. <label> is slightly broken on iOS,
+                so this works around that. Unfortunately, it is
+                simplest to just work around that everywhere. */}
+            <span className={
+                    ApiClassNames.RADIO.OPTION_CONTENT + " " +
+                    ApiClassNames.INTERACTIVE
+                }
+                style={{ cursor: "default" }}>
+                <div>
+                    {this.props.content}
+                </div>
+            </span>
+            {this.props.showClue &&
+                <div className="perseus-radio-clue">
+                    {this.props.clue}
+                </div>}
+        </label>;
+    }
+});
+
+var ChoiceNoneAbove = React.createClass({
+    propTypes: {
+        showContent: React.PropTypes.bool
+    },
+
+    getDefaultProps: function() {
+        return {
+            showContent: true
+        };
+    },
+
+    render: function() {
+        var choiceProps = _.extend({}, this.props, {
+            className: classNames(this.props.className, "none-of-above"),
+            content: (this.props.showContent ?
+                this.props.content :
+                // We use a Renderer here because that is how
+                // `this.props.content` is wrapped otherwise.
+                // We pass in a key here so that we avoid a semi-spurious
+                // react warning when we render this in the same place
+                // as the previous choice content renderer.
+                // Note this destroys state, but since all we're doing
+                // is outputting "None of the above", that is okay.
+                <Renderer
+                    key="noneOfTheAboveRenderer"
+                    content={$._("None of the above")} />
+            ),
+        });
+
+        return <Choice {...choiceProps} />;
+    }
+});
+
+var ChoiceEditor = React.createClass({
+    propTypes: {
+        choice: React.PropTypes.object,
+        showDelete: React.PropTypes.bool,
+        onClueChange: React.PropTypes.func,
+        onContentChange: React.PropTypes.func,
+        onDelete: React.PropTypes.func
+    },
+
+    render: function() {
+        var checkedClass = this.props.choice.correct ? "correct" : "incorrect";
+        var placeholder = "Type a choice here...";
+
+        if (this.props.choice.isNoneOfTheAbove) {
+            placeholder = this.props.choice.correct ?
+                "Type the answer to reveal to the user..." :
+                "None of the above";
+        }
+
+        var editor = <Editor
+            ref={"content-editor"}
+            content={this.props.choice.content || ""}
+            widgetEnabled={false}
+            placeholder={placeholder}
+            disabled={this.props.choice.isNoneOfTheAbove &&
+                !this.props.choice.correct}
+            onChange={this.props.onContentChange} />;
+
+        var clueEditor = <Editor
+            ref={"clue-editor"}
+            content={this.props.choice.clue || ""}
+            widgetEnabled={false}
+            placeholder={$._(`Why is this choice ${checkedClass}?`)}
+            onChange={this.props.onClueChange} />;
+
+        var deleteLink = <a href="#"
+                className="simple-button orange delete-choice"
+                title="Remove this choice"
+                onClick={this.props.onDelete}>
+            <span className="icon-trash" />
+        </a>;
+
+        return <div className="choice-clue-editors">
+            <div className={`choice-editor ${checkedClass}`}>
+                {editor}
+            </div>
+            <div className="clue-editor">
+                {clueEditor}
+            </div>
+            {this.props.showDelete && deleteLink}
+        </div>;
+    }
+});
 
 var BaseRadio = React.createClass({
     propTypes: {
         labelWrap: React.PropTypes.bool,
         multipleSelect: React.PropTypes.bool,
         onCheckedChange: React.PropTypes.func,
-        showClues: React.PropTypes.bool,
-        onePerLine: React.PropTypes.bool
+        onePerLine: React.PropTypes.bool,
+        apiOptions: React.PropTypes.object,
+        reviewModeRubric: React.PropTypes.object,
+        deselectEnabled: React.PropTypes.bool,
     },
 
     getDefaultProps: function() {
         return {
-            onePerLine: true
+            onePerLine: true,
         };
     },
 
     render: function() {
+        // TODO(aria): Stop this from mutating the id every time someone
+        // clicks on a radio :(
         var radioGroupName = _.uniqueId("perseus_radio_");
         var inputType = this.props.multipleSelect ? "checkbox" : "radio";
+        var rubric = this.props.reviewModeRubric;
 
         return <ul className={"perseus-widget-radio " +
                 "above-scratchpad blank-background"}>
@@ -44,62 +198,71 @@ var BaseRadio = React.createClass({
                     <$_>Select all that apply.</$_>
                 </div>}
             {this.props.choices.map(function(choice, i) {
+                // True if we're in review mode and a clue is available
+                var reviewModeClues = !!(rubric && rubric.choices[i].clue);
 
-                var content = <div>
-                        {choice.content}
-                    </div>;
+                // TODO(marcia): As of March 2015, clues are only available
+                // within the SAT experience. There were a handful of non-SAT
+                // exercises (see content/targeted_clues_exercises.py) where we
+                // had enabled clues in an AB test, but closing that
+                // inconclusive test in favor of clues yielded strange
+                // interactions with SAT. Closing the AB test to keep the orig
+                // behavior, and adding a TODO here to leave a trace. Aria
+                // recommends bringing the logic for showing a clue to the same
+                // level as this.props.questionCompleted
+                var showClue = choice.checked && reviewModeClues;
 
-                var classSet = {
-                    "inline": !this.props.onePerLine
+                var Element = Choice;
+                var elementProps = {
+                    ref: `radio${i}`,
+                    checked: choice.checked,
+                    clue: choice.clue,
+                    content: choice.content,
+                    disabled: this.props.apiOptions.readOnly,
+                    groupName: radioGroupName,
+                    showClue: showClue,
+                    type: inputType,
+                    onChecked: (checked) => {
+                        this.checkOption(i, checked);
+                    }
                 };
-                classSet[ApiClassNames.RADIO.OPTION] = true;
-                classSet[ApiClassNames.RADIO.SELECTED] = choice.checked;
-                var className = cx(classSet);
 
-                return <li className={className} key={i}><div>
-                    <span className="checkbox">
-                        <input
-                            ref={"radio" + i}
-                            type={inputType}
-                            name={radioGroupName}
-                            checked={choice.checked}
-                            onChange={(e) => {
-                                this.checkOption(i, e.target.checked);
-                            }} />
-                    </span>
-                    {/* A pseudo-label. <label> is slightly broken on iOS,
-                        so this works around that. Unfortunately, it is
-                        simplest to just work around that everywhere. */}
-                    <span
-                            className={
-                                "interactive-component " +
-                                ApiClassNames.RADIO.OPTION_CONTENT
-                            }
-                            style={{
-                                cursor: "default",
-                            }}
-                            onTouchStart={!this.props.labelWrap ?
-                                null : captureScratchpadTouchStart
-                            }
-                            onClick={!this.props.labelWrap ? null : (e) => {
-                                // Don't send this to the scratchpad
-                                e.preventDefault();
-                                this.checkOption(i,
-                                    (this.props.multipleSelect ?
-                                        !choice.checked :
-                                        true
-                                    )
-                                );
-                            }}>
-                        {content}
-                    </span>
-                    {Exercises.cluesEnabled === "cluesEnabled" &&
-                        this.props.showClues && choice.checked &&
-                        <div className="perseus-radio-clue">
-                            {choice.clue}
-                        </div>}
-                </div></li>;
+                if (choice.isNoneOfTheAbove) {
+                    Element = ChoiceNoneAbove;
+                    _.extend(elementProps, { showContent: choice.correct });
+                }
 
+                var className = classNames(
+                    // TODO(aria): Make a test case for these API classNames
+                    ApiClassNames.RADIO.OPTION,
+                    choice.checked && ApiClassNames.RADIO.SELECTED,
+                    !this.props.onePerLine && "inline",
+                    (rubric && rubric.choices[i].correct &&
+                        ApiClassNames.CORRECT
+                    ),
+                    (rubric && !rubric.choices[i].correct &&
+                        ApiClassNames.INCORRECT
+                    )
+                );
+
+            return <li className={className} key={i}
+                        onTouchStart={!this.props.labelWrap ?
+                            null : captureScratchpadTouchStart
+                        }
+                        onClick={!this.props.labelWrap ? null : (e) => {
+                            // Don't send this to the scratchpad
+                            e.preventDefault();
+                            if (!this.props.apiOptions.readOnly) {
+                                var shouldToggle =
+                                    this.props.multipleSelect ||
+                                    this.props.deselectEnabled;
+                                this.checkOption(
+                                    i,
+                                    shouldToggle ? !choice.checked : true);
+                           }
+                        }}>
+                    <Element {...elementProps} />
+                </li>;
             }, this)}
         </ul>;
     },
@@ -113,10 +276,10 @@ var BaseRadio = React.createClass({
                 return (i === radioIndex) ? shouldBeChecked : choice.checked;
             });
         } else {
-            // When multipleSelect is turned off, we always select the
-            // clicked index, and unselect everything else.
+            // When multipleSelect is turned off we always unselect everything
+            // that wasn't clicked.
             newChecked = _.map(this.props.choices, (choice, i) => {
-                return i === radioIndex;
+                return i === radioIndex && shouldBeChecked;
             });
         }
 
@@ -138,32 +301,27 @@ var Radio = React.createClass({
             choices: [{}],
             displayCount: null,
             multipleSelect: false,
-        };
-    },
-
-    getInitialState: function() {
-        return {
-            showClues: false
+            deselectEnabled: false,
         };
     },
 
     render: function() {
         var choices = this.props.choices;
         var values = this.props.values || _.map(choices, () => false);
-        var revealNoneOfTheAbove = this._shouldRevealNoneOfTheAbove(choices,
-                                                                    values);
+
         choices = _.map(choices, (choice, i) => {
-            var content;
-            if (choice.isNoneOfTheAbove && !revealNoneOfTheAbove) {
-                content = { content: "None of the above" };
-            } else {
-                content = _.pick(choice, "content");
-            }
+            var content = (choice.isNoneOfTheAbove && !choice.content) ?
+                // we use $._ instead of $_ here because the content
+                // sent to a renderer needs to be a string, not a react
+                // node (/renderable/fragment).
+                $._("None of the above") :
+                choice.content;
             return {
-                // We need to make a copy, which _.pick does
-                content: Renderer(content),
+                content: this._renderRenderer(content),
                 checked: values[i],
-                clue: Renderer({content: choice.clue}),
+                correct: this.props.questionCompleted && values[i],
+                clue: this._renderRenderer(choice.clue),
+                isNoneOfTheAbove: choice.isNoneOfTheAbove
             };
         });
         choices = this.enforceOrdering(choices);
@@ -173,23 +331,64 @@ var Radio = React.createClass({
             labelWrap={true}
             onePerLine={this.props.onePerLine}
             multipleSelect={this.props.multipleSelect}
-            showClues={this.state.showClues}
-            choices={choices.map(function(choice) {
-                return _.pick(choice, "content", "checked", "clue");
-            })}
-            onCheckedChange={this.onCheckedChange} />;
+            choices={choices}
+            onCheckedChange={this.onCheckedChange}
+            reviewModeRubric={this.props.reviewModeRubric}
+            deselectEnabled={this.props.deselectEnabled}
+            apiOptions={this.props.apiOptions} />;
     },
 
-    _shouldRevealNoneOfTheAbove: function(choices, values) {
-        // We reveal when 'None of the above' is the correct choice
-        // and the entire question is completed. If 'None of the above' isn't
-        // selected and the question is completed, then it's the wrong choice
-        // and not worth revealing.
-        var noneOfTheAboveSelected = _.any(choices, (choice, i) => {
-            return choice.isNoneOfTheAbove && values[i];
-        });
-        return this.props.questionCompleted && this.props.noneOfTheAbove &&
-                    noneOfTheAboveSelected;
+    _renderRenderer: function(content) {
+        content = content || "";
+
+        var nextPassageRefId = 1;
+        var widgets = {};
+
+        var modContent = content.replace(
+            /\{\{passage-ref (\d+) (\d+)\}\}/g,
+            (match, passageNum, refNum) => {
+                var widgetId = "passage-ref " + nextPassageRefId;
+                nextPassageRefId++;
+
+                widgets[widgetId] = {
+                    type: "passage-ref",
+                    graded: false,
+                    options: {
+                        passageNumber: parseInt(passageNum),
+                        referenceNumber: parseInt(refNum),
+                    },
+                    version: PassageRef.version
+                };
+
+                return "[[" + Util.snowman + " " + widgetId + "]]";
+            }
+        );
+
+        // alwaysUpdate={true} so that passage-refs interwidgets
+        // get called when the outer passage updates the renderer
+        // TODO(aria): This is really hacky
+        // We pass in a key here so that we avoid a semi-spurious
+        // react warning when the ChoiceNoneAbove renders a
+        // different renderer in the same place. Note this destroys
+        // state, but since all we're doing is outputting
+        // "None of the above", that is okay.
+        return <Renderer
+                key="choiceContentRenderer"
+                content={modContent}
+                widgets={widgets}
+                interWidgets={this._interWidgets}
+                alwaysUpdate={true} />;
+    },
+
+    _interWidgets: function(filterCriterion, localResults) {
+        // If local results are not found, forward interwidgets
+        // calls to our parent renderer.
+        // For passage-refs to communicate with their passages.
+        if (localResults.length) {
+            return localResults;
+        } else {
+            return this.props.interWidgets(filterCriterion);
+        }
     },
 
     focus: function(i) {
@@ -197,13 +396,12 @@ var Radio = React.createClass({
     },
 
     onCheckedChange: function(checked) {
-        this.setState({showClues: false});
         this.props.onChange({
             values: checked
         });
     },
 
-    toJSON: function(skipValidation) {
+    getUserInput: function() {
         // Return checked inputs in the form {values: [bool]}. (Dear future
         // timeline implementers: this used to be {value: i} before multiple
         // select was added)
@@ -241,8 +439,7 @@ var Radio = React.createClass({
     },
 
     simpleValidate: function(rubric) {
-        this.setState({showClues: true});
-        return Radio.validate(this.toJSON(), rubric);
+        return Radio.validate(this.getUserInput(), rubric);
     },
 
     enforceOrdering: function(choices) {
@@ -313,9 +510,10 @@ var RadioEditor = React.createClass({
         })),
         displayCount: React.PropTypes.number,
         randomize: React.PropTypes.bool,
-        noneOfTheAbove: React.PropTypes.bool,
+        hasNoneOfTheAbove: React.PropTypes.bool,
         multipleSelect: React.PropTypes.bool,
-        onePerLine: React.PropTypes.bool
+        onePerLine: React.PropTypes.bool,
+        deselectEnabled: React.PropTypes.bool,
     },
 
     getDefaultProps: function() {
@@ -323,9 +521,10 @@ var RadioEditor = React.createClass({
             choices: [{}, {}],
             displayCount: null,
             randomize: false,
-            noneOfTheAbove: false,
+            hasNoneOfTheAbove: false,
             multipleSelect: false,
-            onePerLine: true
+            onePerLine: true,
+            deselectEnabled: false,
         };
     },
 
@@ -333,39 +532,38 @@ var RadioEditor = React.createClass({
         return <div>
             <div className="perseus-widget-row">
 
-                <div>
-                    <div className="perseus-widget-left-col">
+                <div className="perseus-widget-left-col">
+                    <div>
                         <PropCheckBox label="One answer per line"
                                       labelAlignment="right"
                                       onePerLine={this.props.onePerLine}
                                       onChange={this.props.onChange} />
+                        <InfoTip>
+                            <p>
+                                Use one answer per line unless your question has
+                                images that might cause the answers to go off the
+                                page.
+                            </p>
+                        </InfoTip>
                     </div>
-                    <InfoTip>
-                        <p>
-                            Use one answer per line unless your question has
-                            images that might cause the answers to go off the
-                            page.
-                        </p>
-                    </InfoTip>
                 </div>
 
-                <div className="perseus-widget-left-col">
+                <div className="perseus-widget-right-col">
                     <PropCheckBox label="Multiple selections"
                                   labelAlignment="right"
                                   multipleSelect={this.props.multipleSelect}
                                   onChange={this.onMultipleSelectChange} />
                 </div>
-
-                <div className="perseus-widget-right-col">
+                <div className="perseus-widget-left-col">
                     <PropCheckBox label="Randomize order"
                                   labelAlignment="right"
                                   randomize={this.props.randomize}
                                   onChange={this.props.onChange} />
                 </div>
-                <div className="perseus-widget-left-col">
-                    <PropCheckBox label="Auto-none of the above"
+                <div className="perseus-widget-right-col">
+                    <PropCheckBox label="Radio deselect enabled"
                                   labelAlignment="right"
-                                  noneOfTheAbove={this.props.noneOfTheAbove}
+                                  deselectEnabled={this.props.deselectEnabled}
                                   onChange={this.props.onChange} />
                 </div>
             </div>
@@ -375,51 +573,25 @@ var RadioEditor = React.createClass({
                 multipleSelect={this.props.multipleSelect}
                 onePerLine={true}
                 labelWrap={false}
+                apiOptions={this.props.apiOptions}
                 choices={this.props.choices.map(function(choice, i) {
-                    var checkedClass = choice.correct ?
-                        "correct" :
-                        "incorrect";
-                    var editor = Editor({
-                        ref: "editor" + i,
-                        content: choice.content || "",
-                        widgetEnabled: false,
-                        placeholder: "Type a choice here...",
-                        onChange: newProps => {
-                            if ("content" in newProps) {
-                                this.onContentChange(i, newProps.content);
-                            }}
-                    });
-                    var clueEditor = Editor({
-                        ref: "clue-editor-" + i,
-                        content: choice.clue || "",
-                        widgetEnabled: false,
-                        placeholder: $._("Why is this choice " +
-                            checkedClass + "?"),
-                        onChange: newProps => {
-                            if ("content" in newProps) {
-                                this.onClueChange(i, newProps.content);
-                            }}
-                    });
-                    var deleteLink = <a href="#"
-                            className="simple-button orange delete-choice"
-                            title="Remove this choice"
-                            onClick={this.onDelete.bind(this, i)}>
-                        <span className="icon-trash" />
-                    </a>;
                     return {
-                        content: <div className="choice-clue-editors">
-                            <div className={"choice-editor " + checkedClass}>
-                                {editor}
-                            </div>
-                            {/* TODO(eater): Remove this condition after clues
-                                            are fully launched. */}
-                            {(!window.KA || window.KA.allowEditingClues) &&
-                                <div className="clue-editor">
-                                    {clueEditor}
-                                </div>
-                            }
-                            {this.props.choices.length >= 2 && deleteLink}
-                        </div>,
+                        content: <ChoiceEditor
+                            ref={`choice-editor${i}`}
+                            choice={choice}
+                            onContentChange={(newProps) => {
+                                if ("content" in newProps) {
+                                    this.onContentChange(i, newProps.content);
+                                }
+                            }}
+                            onClueChange={(newProps) => {
+                                if ("content" in newProps) {
+                                    this.onClueChange(i, newProps.content);
+                                }
+                            }}
+                            onDelete={this.onDelete.bind(this, i)}
+                            showDelete={this.props.choices.length >= 2} />,
+                        isNoneOfTheAbove: choice.isNoneOfTheAbove,
                         checked: choice.correct
                     };
                 }, this)}
@@ -427,10 +599,16 @@ var RadioEditor = React.createClass({
 
             <div className="add-choice-container">
                 <a href="#" className="simple-button orange"
-                        onClick={this.addChoice}>
+                        onClick={this.addChoice.bind(this, false)}>
                     <span className="icon-plus" />
                     {' '}Add a choice{' '}
                 </a>
+
+                {!this.props.hasNoneOfTheAbove && <a href="#" className="simple-button"
+                        onClick={this.addChoice.bind(this, true)}>
+                    <span className="icon-plus" />
+                    {' '}None of the above{' '}
+                </a>}
             </div>
 
         </div>;
@@ -463,8 +641,11 @@ var RadioEditor = React.createClass({
     },
 
     onCheckedChange: function(checked) {
-        var choices = _.map(this.props.choices, function(choice, i) {
-            return _.extend({}, choice, {correct: checked[i]});
+        var choices = _.map(this.props.choices, (choice, i) => {
+            return _.extend({}, choice, {
+                correct: checked[i],
+                content: choice.isNoneOfTheAbove && !checked[i] ? '' : choice.content
+            });
         });
         this.props.onChange({choices: choices});
     },
@@ -490,17 +671,32 @@ var RadioEditor = React.createClass({
 
     onDelete: function(choiceIndex, e) {
         e.preventDefault();
+
         var choices = this.props.choices.slice();
+        var deleted = choices[choiceIndex];
+
         choices.splice(choiceIndex, 1);
-        this.props.onChange({choices: choices});
+
+        this.props.onChange({
+            choices: choices,
+            hasNoneOfTheAbove: this.props.hasNoneOfTheAbove && !deleted.isNoneOfTheAbove
+        });
     },
 
-    addChoice: function(e) {
+    addChoice: function(noneOfTheAbove, e) {
         e.preventDefault();
 
-        var choices = this.props.choices;
-        this.props.onChange({choices: choices.concat([{}])}, () => {
-            this.refs["editor" + choices.length].focus();
+        var choices = this.props.choices.slice();
+        var newChoice = { isNoneOfTheAbove: noneOfTheAbove };
+        var addIndex = choices.length - (this.props.hasNoneOfTheAbove ? 1 : 0);
+
+        choices.splice(addIndex, 0, newChoice);
+
+        this.props.onChange({
+            choices: choices,
+            hasNoneOfTheAbove: noneOfTheAbove || this.props.hasNoneOfTheAbove
+        }, () => {
+            this.refs[`choice-editor${addIndex}`].refs['content-editor'].focus();
         });
     },
 
@@ -509,62 +705,96 @@ var RadioEditor = React.createClass({
     },
 
     focus: function() {
-        this.refs.editor0.focus();
+        this.refs['choice-editor0'].refs['content-editor'].focus()
         return true;
     },
 
-    toJSON: function(skipValidation) {
-        if (!skipValidation &&
-                !_.some(_.pluck(this.props.choices, "correct"))) {
-            alert("Warning: No choice is marked as correct.");
+    getSaveWarnings: function() {
+        if (!_.some(_.pluck(this.props.choices, "correct"))) {
+            return ["No choice is marked as correct."];
         }
+        return [];
+    },
 
+    serialize: function() {
         return _.pick(this.props, "choices", "randomize",
-            "multipleSelect", "displayCount", "noneOfTheAbove", "onePerLine");
+            "multipleSelect", "displayCount", "hasNoneOfTheAbove", "onePerLine",
+            "deselectEnabled");
     }
 });
 
-var choiceTransform = (editorProps) => {
+var choiceTransform = (editorProps, problemNum) => {
 
     var randomize = function(array) {
         if (editorProps.randomize) {
-            return shuffle(array, editorProps.problemNum);
+            return shuffle(array, problemNum);
         } else {
             return array;
         }
     };
 
     var addNoneOfAbove = function(array) {
-        // Pick a random choice to replace with 'None of the above'
-        if (!editorProps.randomize && editorProps.noneOfTheAbove) {
-            // Seed RNG with problemNum
-            var rand = seededRNG(editorProps.problemNum)();
-            var randomIndex = Math.floor(rand * array.length);
-            var itemToBeReplaced = array[randomIndex];
+        var noneOfTheAbove = null;
 
-            // Shift array left so that 'None of the above' is last
-            array.splice(randomIndex, 1);
-            array.push(itemToBeReplaced);
+        array = _.reject(array, function(choice, index) {
+            if (choice.isNoneOfTheAbove) {
+                noneOfTheAbove = choice;
+                return true;
+            }
+        });
+
+        // Place the "None of the above" options last
+        if (noneOfTheAbove) {
+            array.push(noneOfTheAbove)
         }
 
-        array[array.length - 1].isNoneOfTheAbove = editorProps.noneOfTheAbove;
         return array;
     };
 
     // Add meta-information to choices
     var choices = editorProps.choices.slice();
+
     choices = _.map(choices, function(choice, i) {
-        return _.extend({}, _.omit(choice, "correct"),
-            { originalIndex: i, isNoneOfTheAbove: false }
-        );
+        return _.extend({}, _.omit(choice, "correct"), { originalIndex: i });
     });
 
     // Randomize and add 'None of the above'
     choices = addNoneOfAbove(randomize(choices));
 
     editorProps = _.extend({}, editorProps, { choices: choices });
-    return _.pick(editorProps, "choices", "noneOfTheAbove", "onePerLine",
-        "multipleSelect", "correctAnswer");
+    return _.pick(editorProps, "choices", "hasNoneOfTheAbove", "onePerLine",
+        "multipleSelect", "correctAnswer", "deselectEnabled");
+};
+
+var propUpgrades = {
+    1: (v0props) => {
+        var choices;
+        var hasNoneOfTheAbove;
+
+        if (!v0props.noneOfTheAbove) {
+            choices = v0props.choices;
+            hasNoneOfTheAbove = false;
+
+        } else {
+            choices = _.clone(v0props.choices);
+            var noneOfTheAboveIndex = _.random(0, v0props.choices.length - 1);
+            var noneChoice = _.extend(
+                {},
+                v0props.choices[noneOfTheAboveIndex],
+                {
+                    isNoneOfTheAbove: true,
+                }
+            );
+            choices.splice(noneOfTheAboveIndex, 1);
+            choices.push(noneChoice);
+            hasNoneOfTheAbove = true;
+        }
+
+        return _.extend(_.omit(v0props, "noneOfTheAbove"), {
+            choices: choices,
+            hasNoneOfTheAbove: hasNoneOfTheAbove,
+        });
+    },
 };
 
 module.exports = {
@@ -572,5 +802,8 @@ module.exports = {
     displayName: "Multiple choice",
     widget: Radio,
     editor: RadioEditor,
-    transform: choiceTransform
+    transform: choiceTransform,
+    version: { major: 1, minor: 0 },
+    propUpgrades: propUpgrades,
 };
+

@@ -1,8 +1,12 @@
 # Perseus
 
+[![Build Status](https://travis-ci.org/Khan/perseus.svg?branch=master)](https://travis-ci.org/Khan/perseus)
+[![Join the chat at https://gitter.im/Khan/perseus](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/Khan/perseus?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Perseus is Khan Academy's new exercise question editor and renderer. It allows
 you to create and display interactive questions.
 
+![screenshot of Perseus](https://s3.amazonaws.com/uploads.hipchat.com/6574/26709/TfZBRXV0nmRH64g/upload.png)
 
 ## Live demo
 
@@ -13,7 +17,7 @@ Our test page isn't much yet, but you can check out a
 
 To get the dev server running locally, try `make server PORT=9000` which will run the local perseus server on localhost:9000.
 
-To package perseus for distribution, run `make build` and to package a debug-friendy build, run `make debug`.
+To package perseus for distribution, run `make build` and to package a debug-friendly build, run `make debug`.
 
 Both the `build` and the `server` make targets will run `npm install` but you can also run it yourself to install all node dependencies.
 
@@ -22,7 +26,7 @@ Both the `build` and the `server` make targets will run `npm install` but you ca
 
 Perseus uses two types of version numbers: the version of the itemData/content
 that can be sent to `ItemRenderer`/`Renderer`, and the version of the api
-exposed through the `ItemRenderer/`Renderer` apiOptions prop.
+exposed through the `ItemRenderer`/`Renderer` apiOptions prop.
 
 ### itemData versioning
 

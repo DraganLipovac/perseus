@@ -1,14 +1,13 @@
-/** @jsx React.DOM */
-
 var React = require('react');
+var _ = require("underscore");
+
 var Util = require("../util.js");
+
+var SvgImage = require("../components/svg-image.jsx");
 
 var defaultBoxSize = 400;
 var defaultBackgroundImage = {
-    url: null,
-    scale: 1,
-    bottom: 0,
-    left: 0,
+    url: null
 };
 
 /* Style objects */
@@ -50,16 +49,13 @@ var Graph = React.createClass({
         snapStep: React.PropTypes.arrayOf(React.PropTypes.number),
         markings: React.PropTypes.string,
         backgroundImage: React.PropTypes.shape({
-            url: React.PropTypes.string,
-            scale: React.PropTypes.number,
-            bottom: React.PropTypes.number,
-            left: React.PropTypes.number
+            url: React.PropTypes.string
         }),
         showProtractor: React.PropTypes.bool,
         showRuler: React.PropTypes.bool,
         rulerLabel: React.PropTypes.string,
         rulerTicks: React.PropTypes.number,
-        onNewGraphie: React.PropTypes.func,
+        onGraphieUpdated: React.PropTypes.func,
         instructions: React.PropTypes.string,
         onClick: React.PropTypes.func
     },
@@ -79,24 +75,21 @@ var Graph = React.createClass({
             rulerLabel: "",
             rulerTicks: 10,
             instructions: null,
-            onNewGraphie: null,
+            onGraphieUpdated: null,
             onClick: null,
             onMouseDown: null,
         };
     },
 
     render: function() {
-        var image = this.props.backgroundImage;
-        if (image.url) {
-            var preScale = this.props.box[0] / defaultBoxSize;
-            var scale = image.scale * preScale;
-            var style = {
-                bottom: (preScale * image.bottom) + "px",
-                left: (preScale * image.left) + "px",
-                width: (scale * image.width) + "px",
-                height: (scale * image.height) + "px"
-            };
-            image = <img style={style} src={image.url} />;
+        var image;
+        var imageData = this.props.backgroundImage;
+        if (imageData.url) {
+            var scale = this.props.box[0] / defaultBoxSize;
+            image = <SvgImage src={imageData.url}
+                              width={imageData.width}
+                              height={imageData.height}
+                              scale={scale} />;
         } else {
             image = null;
         }
@@ -116,7 +109,7 @@ var Graph = React.createClass({
     },
 
     componentDidMount: function() {
-        this._setupGraphie();
+        this._setupGraphie(true);
     },
 
     componentDidUpdate: function() {
@@ -124,7 +117,7 @@ var Graph = React.createClass({
         // See explanation in setupGraphie().
         this._hasSetupGraphieThisUpdate = false;
         if (this._shouldSetupGraphie) {
-            this._setupGraphie();
+            this._setupGraphie(false);
             this._shouldSetupGraphie = false;
         }
     },
@@ -147,7 +140,7 @@ var Graph = React.createClass({
      * graphie.
      */
     reset: function() {
-        this._setupGraphie();
+        this._setupGraphie(false);
     },
 
     graphie: function() {
@@ -171,7 +164,7 @@ var Graph = React.createClass({
         });
     },
 
-    _setupGraphie: function() {
+    _setupGraphie: function(initialMount) {
         // Only setupGraphie once per componentDidUpdate().
         // This prevents this component from rendering graphie
         // and then immediately re-render graphie because its
@@ -282,8 +275,12 @@ var Graph = React.createClass({
         // We set this flag before jumping into our callback
         // to avoid recursing if our callback calls reset() itself
         this._hasSetupGraphieThisUpdate = true;
-        if (this.props.onNewGraphie) {
-            this.props.onNewGraphie(graphie);
+        if (!initialMount && this.props.onGraphieUpdated) {
+            // Calling a parent callback in componentDidMount is bad and
+            // results in hard-to-reason-about lifecycle problems (esp. with
+            // refs), so we do it only on update and rely on the parent to
+            // query for the graphie object on initial mount
+            this.props.onGraphieUpdated(graphie);
         }
     },
 

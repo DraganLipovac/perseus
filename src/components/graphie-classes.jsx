@@ -1,6 +1,7 @@
 var Util = require("../util.js");
 var nestedMap = Util.nestedMap;
 var deepEq = Util.deepEq;
+var _ = require("underscore");
 
 /**
  * A base class for all Graphie Movables
@@ -19,9 +20,6 @@ var abstractMethod = function() {
 
 _.extend(GraphieMovable.prototype, {
     movableProps: [],
-    key: function() {
-        return this.props.key;
-    },
     add: abstractMethod,
     modify: abstractMethod,
     remove: abstractMethod,
@@ -46,8 +44,11 @@ var rewriteProps = function(props, childrenArray) {
  * Create a custom GraphieMovable class
  */
 var createClass = function(spec) {
-    var GraphieClass = function(props, childrenArray) {
-        this.props = rewriteProps(props, childrenArray);
+    var GraphieClass = function(props) {
+        if (!(this instanceof GraphieClass)) {
+            throw new Error("Use createElement or JSX with graphie movables");
+        }
+        this.props = rewriteProps(props, props.children || []);
         return this;
     };
 
@@ -60,9 +61,7 @@ var createClass = function(spec) {
     GraphieClass.prototype = new GraphieMovable(spec);
     GraphieClass.prototype.constructor = GraphieClass;
 
-    return function(props) {
-        return new GraphieClass(props, _.rest(arguments));
-    };
+    return GraphieClass;
 };
 
 

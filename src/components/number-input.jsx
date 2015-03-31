@@ -1,10 +1,11 @@
-/** @jsx React.DOM */
-
+var classNames = require("classnames");
 var React = require('react');
+var _ = require("underscore");
+
 var firstNumericalParse = require("../util.js").firstNumericalParse;
 var captureScratchpadTouchStart =
         require("../util.js").captureScratchpadTouchStart;
-var knumber = KhanUtil.knumber;
+var knumber = require("kmath").number;
 var toNumericString = KhanUtil.toNumericString;
 var getNumericFormat = KhanUtil.getNumericFormat;
 
@@ -32,7 +33,8 @@ var NumberInput = React.createClass({
         onChange: React.PropTypes.func.isRequired,
         onFormatChange: React.PropTypes.func,
         checkValidity: React.PropTypes.func,
-        size: React.PropTypes.string
+        size: React.PropTypes.string,
+        label: React.PropTypes.oneOf(["put your labels outside your inputs!"]),
     },
 
     getDefaultProps: function() {
@@ -53,38 +55,30 @@ var NumberInput = React.createClass({
     },
 
     render: function() {
-        cx = React.addons.classSet;
-
-        var classes = cx({
+        var classes = classNames({
             "number-input": true,
-            "number-input-label": this.props.label != null,
             "invalid-input": !this._checkValidity(this.props.value),
             "mini": this.props.size === "mini",
             "small": this.props.size === "small",
             "normal": this.props.size === "normal"
         });
         if (this.props.className != null) {
-            classes = [classes, this.props.className].join(" ");
+            classes = classes + " " + this.props.className;
         }
 
-        var input = React.DOM.input(_.extend({}, this.props, {
-            className: classes,
-            type: "text",
-            ref: "input",
-            onChange: this._handleChange,
-            onBlur: this._handleBlur,
-            onKeyPress: this._handleBlur,
-            onKeyDown: this._onKeyDown,
-            onTouchStart: captureScratchpadTouchStart,
-            defaultValue: toNumericString(this.props.value, this.state.format),
-            value: undefined
-        }));
-
-        if (this.props.label) {
-            return <label>{this.props.label}{input}</label>;
-        } else {
-            return input;
-        }
+        return <input
+            {...this.props}
+            className={classes}
+            type="text"
+            ref="input"
+            onChange={this._handleChange}
+            onFocus={this._handleFocus}
+            onBlur={this._handleBlur}
+            onKeyPress={this._handleBlur}
+            onKeyDown={this._onKeyDown}
+            onTouchStart={captureScratchpadTouchStart}
+            defaultValue={toNumericString(this.props.value, this.state.format)}
+            value={undefined} />;
     },
 
     componentDidUpdate: function(prevProps) {
@@ -100,6 +94,11 @@ var NumberInput = React.createClass({
         return this.parseInputValue(this.refs.input.getDOMNode().value);
     },
 
+    /* Return the current string value of this input */
+    getStringValue: function() {
+        return this.refs.input.getDOMNode().value.toString();
+    },
+
     parseInputValue: function(value) {
         if (value === "") {
             placeholder = this.props.placeholder;
@@ -113,6 +112,24 @@ var NumberInput = React.createClass({
     /* Set text input focus to this input */
     focus: function() {
         this.refs.input.getDOMNode().focus();
+        this._handleFocus();
+    },
+
+    blur: function() {
+        this.refs.input.getDOMNode().blur();
+        this._handleBlur();
+    },
+
+    setSelectionRange: function(selectionStart, selectionEnd) {
+        this.getDOMNode().setSelectionRange(selectionStart, selectionEnd);
+    },
+
+    getSelectionStart: function() {
+        return this.getDOMNode().selectionStart;
+    },
+
+    getSelectionEnd: function() {
+        return this.getDOMNode().selectionEnd;
     },
 
     _checkValidity: function(value) {
@@ -138,16 +155,29 @@ var NumberInput = React.createClass({
         }
     },
 
+    _handleFocus: function() {
+        if (this.props.onFocus) {
+            this.props.onFocus();
+        }
+    },
+
     _handleBlur: function(e) {
         // Only continue on blur or "enter"
-        if (e.type === "keypress" && e.keyCode !== 13) {
+        if (e && e.type === "keypress" && e.keyCode !== 13) {
             return;
         }
 
         this._setValue(this.props.value, this.state.format);
+        if (this.props.onBlur) {
+            this.props.onBlur();
+        }
     },
 
     _onKeyDown: function(e) {
+        if (this.props.onKeyDown) {
+            this.props.onKeyDown(e);
+        }
+
         if (!this.props.useArrowKeys ||
             !_.contains(["ArrowUp", "ArrowDown"], e.key)) {
             return;

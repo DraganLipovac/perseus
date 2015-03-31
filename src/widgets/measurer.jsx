@@ -1,10 +1,10 @@
-/** @jsx React.DOM */
-
 var React        = require('react');
-var Changeable   = require("../mixins/changeable.jsx");
-var JsonifyProps = require("../mixins/jsonify-props.jsx");
+var _ = require("underscore");
 
-var InfoTip       = require("react-components/info-tip");
+var Changeable   = require("../mixins/changeable.jsx");
+var EditorJsonify = require("../mixins/editor-jsonify.jsx");
+
+var InfoTip       = require("react-components/info-tip.jsx");
 var NumberInput   = require("../components/number-input.jsx");
 var PropCheckBox  = require("../components/prop-check-box.jsx");
 var RangeInput    = require("../components/range-input.jsx");
@@ -139,12 +139,13 @@ var Measurer = React.createClass({
         }
     },
 
-    toJSON: function() {
+    getUserInput: function() {
         return {};
     },
 
     simpleValidate: function(rubric) {
-        return Measurer.validate(this.toJSON(), rubric);
+        // TODO(joel) - I don't understand how this is useful!
+        return Measurer.validate(this.getUserInput(), rubric);
     },
 
     focus: $.noop,
@@ -168,7 +169,7 @@ _.extend(Measurer, {
 
 
 var MeasurerEditor = React.createClass({
-    mixins: [Changeable, JsonifyProps],
+    mixins: [Changeable, EditorJsonify],
     className: "perseus-widget-measurer",
 
     propTypes: {
@@ -216,20 +217,24 @@ var MeasurerEditor = React.createClass({
             </InfoTip>
             </div>
             {image.url && <div className="perseus-widget-row">
-                <div className="perseus-widget-left-col">
-                    <NumberInput label="Pixels from top:"
+                <label className="perseus-widget-left-col">
+                    Pixels from top:
+                    {" "}
+                    <NumberInput
                         placeholder={0}
                         onChange={this._changeTop}
                         value={image.top}
                         useArrowKeys={true} />
-                </div>
-                <div className="perseus-widget-right-col">
-                    <NumberInput label="Pixels from left:"
+                </label>
+                <label className="perseus-widget-right-col">
+                    Pixels from left:
+                    {" "}
+                    <NumberInput
                         placeholder={0}
                         onChange={this._changeLeft}
                         value={image.left}
                         useArrowKeys={true} />
-                </div>
+                </label>
             </div>}
             <div>Containing area [width, height]:{' '}
                 <RangeInput
@@ -285,24 +290,32 @@ var MeasurerEditor = React.createClass({
                             this.change("rulerTicks", +e.target.value)}
                         value={this.props.rulerTicks} >
                             {_.map([1, 2, 4, 8, 10, 16], function(n) {
-                                return <option value={n}>{n}</option>;
+                                return <option key={n} value={n}>{n}</option>;
                             })}
                     </select>
                 </label>
             </div>
             <div>
-                <NumberInput label="Ruler pixels per unit:"
-                    placeholder={40}
-                    onChange={this.change("rulerPixels")}
-                    value={this.props.rulerPixels}
-                    useArrowKeys={true} />
+                <label>
+                    Ruler pixels per unit:
+                    {" "}
+                    <NumberInput
+                        placeholder={40}
+                        onChange={this.change("rulerPixels")}
+                        value={this.props.rulerPixels}
+                        useArrowKeys={true} />
+                </label>
             </div>
             <div>
-                <NumberInput label="Ruler length in units:"
-                    placeholder={10}
-                    onChange={this.change("rulerLength")}
-                    value={this.props.rulerLength}
-                    useArrowKeys={true} />
+                <label>
+                    Ruler length in units:
+                    {" "}
+                    <NumberInput
+                        placeholder={10}
+                        onChange={this.change("rulerLength")}
+                        value={this.props.rulerLength}
+                        useArrowKeys={true} />
+                </label>
             </div>
             </div>}
         </div>;
@@ -328,7 +341,8 @@ var MeasurerEditor = React.createClass({
 
     renderLabelChoices: function(choices) {
         return _.map(choices, function(nameAndValue) {
-            return <option value={nameAndValue[1]}>{nameAndValue[0]}</option>;
+            var [name, value] = nameAndValue;
+            return <option key={value} value={value}>{name}</option>;
         });
     }
 });
